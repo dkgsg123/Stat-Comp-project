@@ -1,0 +1,5 @@
+"0","CIs_A <- data.frame(Name = c('beta1', 'beta2', 'beta3', 'beta4'), "
+"0","                    Value =  fit_A$optimal, "
+"0","                    Lower = lower_A, Upper = upper_A, "
+"0","                    Width = width_A)"
+"0","knitr::kable(CIs_A)"

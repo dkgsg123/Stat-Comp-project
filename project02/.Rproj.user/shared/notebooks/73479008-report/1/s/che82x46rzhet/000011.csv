@@ -1,0 +1,2 @@
+"0","rownames(standard.error.P) <- ""Standard Error"""
+"0","knitr::kable(standard.error.P)"

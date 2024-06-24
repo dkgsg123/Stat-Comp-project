@@ -1,0 +1,5 @@
+"0","ggplot(filament1, aes(x = Material, y = CAD_Weight, fill = Material)) +"
+"0","  geom_boxplot() +"
+"0","  scale_fill_manual(values = c(""grey"", ""green"", ""magenta"", ""blue"", ""pink"", ""red""), "
+"0","                    guide = guide_legend(title = ""Material Type"")) +"
+"0","  labs(title = ""Boxplot of CAD Weight by Material"", x = ""Material"", y = ""CAD Weight"")"

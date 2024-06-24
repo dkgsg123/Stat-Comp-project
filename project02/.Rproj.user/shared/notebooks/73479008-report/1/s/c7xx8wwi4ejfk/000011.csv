@@ -1,0 +1,6 @@
+"0","ggplot(rbind("
+"0","  cbind(score_A, Model = ""A""),"
+"0","  cbind(score_B, Model = ""B"")"
+"0","), aes(x = se, y = ds, color = Model)) +"
+"0","  geom_point(size = 2) +"
+"0","  labs(title = ""Scores of Model A and B"", x = ""Squared Error"", y = ""DS Score"")"

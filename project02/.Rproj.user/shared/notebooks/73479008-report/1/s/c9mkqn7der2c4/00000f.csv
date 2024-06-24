@@ -1,0 +1,5 @@
+"0","pred_B <- filament1_predict("
+"0","  data = filament1,"
+"0","  model = ""B"","
+"0","  newdata = filament1"
+"0",")"

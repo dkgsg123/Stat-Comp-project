@@ -1,0 +1,3 @@
+"0","ggplot(filament1, aes(x = CAD_Weight, y = Actual_Weight)) +"
+"0","  geom_point(color = ""blue"") +"
+"0","  labs(title = ""CAD Weight vs. Actual Weight"", x = ""CAD Weight"", y = ""Actual Weight"")"

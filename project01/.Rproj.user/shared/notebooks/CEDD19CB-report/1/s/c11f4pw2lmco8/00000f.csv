@@ -1,0 +1,4 @@
+"0","N <- 10000"
+"0",""
+"0","IS <- do_importance(N, fit_theta$mode, fit_theta$S, filament1$CAD_Weight, filament1$Actual_Weight, params)"
+"0","print(IS[1:10, ])"

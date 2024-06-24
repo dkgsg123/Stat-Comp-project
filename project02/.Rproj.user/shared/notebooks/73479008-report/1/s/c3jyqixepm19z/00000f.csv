@@ -1,0 +1,6 @@
+"0","ggplot(data = result_B.leave1out, "
+"0","       mapping = aes(x = CAD_Weight)"
+"0","       ) +"
+"0","  geom_point(aes(y = Actual_Weight), color = ""blue"") +"
+"0","  geom_point(aes(y = mean), color = ""red"") +"
+"0","  labs(title = ""Model B"", x = ""CAD_Weight"", y = ""Value"")"

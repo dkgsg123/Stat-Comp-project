@@ -1,0 +1,423 @@
+---
+title: 'StatComp Project 1:  3D printer materials estimation'
+author: "Ken Deng (s2617343)"
+output:
+  html_document:
+    number_sections: yes
+    mathjax: default
+  pdf_document:
+    number_sections: yes
+header-includes:
+  - \newcommand{\bm}[1]{\boldsymbol{#1}}
+  - \newcommand{\mat}[1]{\begin{bmatrix}#1\end{bmatrix}}
+---
+
+```{r setup, include = FALSE}
+# Modify this setup code chunk to set options
+# or add extra packages etc if needed.
+# See the project instructions for more details
+# on what code to show, and where/how.
+
+# Set default code chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE
+)
+
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(mvtnorm))
+
+theme_set(theme_bw())
+
+# To give the same random number sequence every time the document is knit:ed,
+# making it easier to discuss the specific numbers in the text:
+set.seed(12345L)
+```
+
+```{r code=readLines("code.R"), eval=TRUE, echo=FALSE, results = 'hide'}
+# Do not change this code chunk
+# Load function definitions
+source("code.R")
+```
+
+# The data
+
+After loading the data set "filament1", we can see that the data set has 86 samples, each containing 5 variables. **Index** and **Date** are index columns, **Material** are categorical variables, and **CAD_Weight** and **Actual_Weight** are numerical variables.
+
+```{r load data, echo=FALSE}
+load("filament1.rda")
+```
+
+## Missing value processing
+
+We first use `is.na()` to determine whether there are missing values, and the result shows that our data set does not have missing values, so we can proceed to the next analysis.
+
+```{r missing values}
+any(is.na(filament1))
+```
+
+## Numeric variable analysis
+
+Then we use `summary()` to look at the distribution of numerical variables. Based on these quantiles, we can see that the distribution of **CAD_Weight** and **Actual_Weight** is similar, and **Actual_Weight** is slightly larger than **CAD_Weight**. This means that the actual printed weight will be heavier than its original design.
+
+```{r summary data}
+summary(filament1[, c("CAD_Weight", "Actual_Weight")])
+```
+
+## **Material** analysis
+
+After the initial analysis, we use `ggplot` to plot the data for further discussion.
+
+For categorical variable **Material**, we make a pie chart to check its distribution. Then we know that **Material** has a total of 6 categories, of which the frequency of "black", "red" and "rate" is more than 20%, and the total proportion of these three materials is 77%.
+
+```{r pie, echo=FALSE, fig.width=7, fig.height=4}
+material.freq <- filament1 %>%
+  group_by(Material) %>%
+  summarise(freq = n()) %>%
+  mutate(percent = freq / sum(freq) * 100)
+
+ggplot(material.freq, aes(x = "", y = freq, fill = Material, label = paste0(round(percent), "%"))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  geom_text(position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  scale_fill_manual(values = c("grey", "green", "magenta", "blue", "pink", "red"), 
+                    guide = guide_legend(title = "Material Type")) +
+  labs(title = "Pie Chart of Material", fill = "Material")
+```
+
+## **CAD_Weight** and **Actual_Weight** analysis
+
+Based on the previous analysis, we found that the distribution of **CAD_Weight** and **Actual_Weight** is similar, so we try to make a scatter plot to check the relationship between these two variables. The figure shows a strong linear correlation between the two variables, which is in line with our expectations.
+
+```{r, echo=FALSE, fig.width=6, fig.height=4}
+ggplot(filament1, aes(x = CAD_Weight, y = Actual_Weight)) +
+  geom_point(color = "blue") +
+  labs(title = "CAD Weight vs. Actual Weight", x = "CAD Weight", y = "Actual Weight")
+```
+
+We further support our idea by calculating Pearson correlation coefficient, and through the results of `cor()`, we prove that the linear correlation between variables is strong.
+
+Note that the Pearson correlation coefficient has the formula:
+$$
+r_{XY} = \frac{\operatorname{Cov}(X, Y)}{\sigma_X \cdot \sigma_Y},
+$$
+where $\operatorname{Cov}(X, Y)=\frac{1}{n} \sum_{i=1}^{n}\left(x_{i}-\bar{x}\right)\left(y_{i}-\bar{y}\right)$, $\sigma = \sqrt{\frac{1}{n-1} \sum_{i=1}^{n}\left(z_{i}-\bar{z}\right)^{2}}$.
+
+```{r correlation}
+cor(filament1[, c("CAD_Weight", "Actual_Weight")])
+```
+
+## The effect of **Material** on **CAD_weight**
+
+Considering that the actual weight of different printing materials may be different, we use the boxplot to investigate the change of **CAD_weight** between different **Material**. 
+
+From the figure, we can find that different **CAD_weight** distributions differ greatly, among which "Red" has the most dispersed distribution and "Magenta" has the most concentrated distribution but has 3 outliers.
+
+```{r, echo=FALSE, fig.width=7, fig.height=4}
+ggplot(filament1, aes(x = Material, y = CAD_Weight, fill = Material)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("grey", "green", "magenta", "blue", "pink", "red"), 
+                    guide = guide_legend(title = "Material Type")) +
+  labs(title = "Boxplot of CAD Weight by Material", x = "Material", y = "CAD Weight")
+```
+
+The purpose of ANOVA is to compare the mean square between groups with the mean square within groups to determine whether there is a significant difference between groups.
+
+Through `aov()` analysis of variance, we further prove that there are significant differences in the distribution of **CAD_weight** for different materials, where the tested p-value < 0.001.
+
+```{r anova}
+anova <- aov(CAD_Weight ~ Material, data = filament1)
+summary(anova)
+```
+
+# Classical estimation 
+
+Now we use linear model A and B to fit **CAD_weight** and **Actual_Weight**.
+
+- A: $y_i \sim \mathcal{N}(\beta_1 + \beta_2 x_i, \exp(\beta_3 + \beta_4 x_i))$
+- B: $y_i \sim \mathcal{N}(\beta_1 + \beta_2 x_i, \exp(\beta_3) + \exp(\beta_4) x_i^2)$
+
+, where $x_i$ is the observation from **CAD_weight**, $y_i$ is the observation from **Actual_Weight**.
+
+For model parameter estimation, we define $\bm{\beta} = (\beta_1, \beta_2, \beta_3, \beta_4)^T$.
+
+## Model parameters estimation
+
+We use the negative logarithmic likelihood function to estimate the parameters:
+$$
+-\ell(\bm{\beta}) = -\log L(\bm{\beta};x, y) = -\log f(y; x, \bm{\beta}) = -\sum_{i=1}^{n}\log f(y_i; x_i, \bm{\beta})
+$$
+
+We use `optim()` to find the model parameters corresponding to the minimum of the negative log-likelihood function.
+$$
+\hat{\bm{\beta}} = \mathrm{argmin}_{\bm{\beta} \in \mathbb{R}^4} -\ell(\bm{\beta})
+$$
+
+For model A, we start with $\bm{\beta}_0 = (-0.1, 1.07, -2, 0.05)^T$ and then get $\hat{\bm{\beta}}$ and Hessian matrix at this point.
+
+```{r show_estimation, echo=FALSE}
+fit_A = filament1_estimate(data = filament1, model = "A")
+print(fit_A)
+```
+
+For model B, we start with $\bm{\beta}_0 = (-0.15, 1.07, -13.5, -6.5)^T$ and then get $\hat{\bm{\beta}}$ and Hessian matrix at this point.
+
+```{r show_estimation 2, echo=FALSE}
+fit_B = filament1_estimate(data = filament1, model = "B")
+print(fit_B)
+```
+
+## Confidence interval construction
+
+Based on the law of large numbers, we can assume that when the number of samples is large enough, the estimators are from a normal distribution.
+$$
+\hat{\beta}_j \sim \mathcal{N}(\beta_j, \hat\sigma_j^2)
+$$
+
+From this, we can deduce the construction of confidence interval:
+$$
+\frac{\hat{\beta}_j - \beta_j}{\hat\sigma_j} \sim t_{n-p} \Rightarrow CI:\hat{\beta}_j \pm t_{n-p}(\alpha/2)*\hat\sigma_j
+$$
+
+Note that here $n = 86$ and $p = 4$.
+
+For model A, we have:
+
+```{r cal_CI_A}
+alpha <- 0.1
+t_value <- qt(1 - alpha / 2, 82)
+
+fit_A = filament1_estimate(data = filament1, model = "A")
+
+se_A <- sqrt(diag(solve(fit_A$hessian)))
+lower_A <- fit_A$optimal - t_value * se_A
+upper_A <- fit_A$optimal + t_value * se_A
+width_A <- upper_A - lower_A
+```
+
+```{r, echo=FALSE}
+CIs_A <- data.frame(Name = c('beta1', 'beta2', 'beta3', 'beta4'), 
+                    Value =  fit_A$optimal, 
+                    Lower = lower_A, Upper = upper_A, 
+                    Width = width_A)
+knitr::kable(CIs_A)
+```
+
+For model B, we have:
+
+```{r cal_CI_B}
+fit_B = filament1_estimate(data = filament1, model = "B")
+
+se_B <- sqrt(diag(solve(fit_B$hessian)))
+lower_B <- fit_B$optimal - t_value * se_B
+upper_B <- fit_B$optimal + t_value * se_B
+width_B <- upper_B - lower_B
+```
+
+```{r, echo=FALSE}
+CIs_B <- data.frame(Name = c('beta1', 'beta2', 'beta3', 'beta4'), 
+                    Value = fit_B$optimal, 
+                    Lower = lower_B, Upper = upper_B, 
+                    Width = width_B)
+knitr::kable(CIs_B)
+```
+
+By analyzing the estimators and confidence interval widths of different $\beta_j$:
+
+1. The estimator of $\beta_1$ is less than 0 in both models, but the uncertainty is slightly higher in model A than in model B
+
+2. The estimator of $\beta_2$ in both models is very accurate and takes the value of 1
+
+3. The uncertainty of $\beta_3$ is high in model A, but it is much higher in model B than in model A
+
+4. The estimator of $\beta_4$ in both models is very accurate
+
+Above all, Model A may be more accurate than model B, and model variance depends to some extent on **CAD_weight**.
+
+# Bayesian estimation
+
+Now we use Bayesian linear model to fit **CAD_weight** and **Actual_Weight**.
+
+- model: $y_i \sim \mathcal{N}(\beta_1 + \beta_2 x_i, \beta_3 + \beta_4 x_i^2)$
+
+, where $x_i$ is the observation from **CAD_weight**, $y_i$ is the observation from **Actual_Weight**.
+
+For model parameter estimation, we define $\bm{\theta} = (\theta_1, \theta_2, \theta_3, \theta_4)^T = (\beta_1, \beta_2, \log\beta_3, \log\beta_4)^T$.
+
+## Prior density
+
+Note that the printer operator assigns independent prior distributions as follows:
+$$
+\begin{array}{l}
+\theta_{1} \sim \operatorname{Normal}\left(0, \gamma_{1}\right) \\
+\theta_{2} \sim \operatorname{Normal}\left(1, \gamma_{2}\right) \\
+\theta_{3} \sim \log \operatorname{Exp}\left(\gamma_{3}\right) \\
+\theta_{4} \sim \log \operatorname{Exp}\left(\gamma_{4}\right)
+\end{array}
+$$
+
+Hence the logarithm of the joint prior density can be estimated by `dnorm()` and `dlogexp()`:
+$$
+\log p(\bm{\theta}) = \sum_{i=1}^{4}\log f_{\theta_i}(\theta_i; \gamma_i)
+$$
+
+## Observation likelihood
+
+The observation log-likelihood can be estimated by `dnorm()`
+$$
+\log p(y|\bm{\theta}) = \log f_y(y|\bm{\theta}) = \sum_{i=1}^{n}\log f_y(y_i|\bm{\theta})
+$$
+
+Note that $\beta_3 = \exp\theta_3, \beta_4 = \exp\theta_4$
+
+## Posterior density
+
+After ignoring the normalization constant, we can estimate the logarithm of the posterior density using Bayes formula.
+$$
+p(\bm{\theta}| y) \propto p(\bm{\theta}) p(y | \bm{\theta}) \Rightarrow  \log p(\bm{\theta}| y) = \log p(\bm{\theta}) + \log p(y | \bm{\theta})
+$$
+
+## Posterior mode
+
+We can find the model parameters estimation corresponding to the maximum of the logarithm of the posterior density.
+$$
+\hat{\bm{\theta}|y} = \mathrm{argmax}_{\bm{\theta} \in \mathbb{R}^4} \log p(\bm{\theta}| y)
+$$
+
+Note that matrix $S = -H^{-1}$ can be estimated by Hessian matrix at $\hat{\bm{\theta}|y}$.
+
+## Gaussian approximation
+
+Let $\bm{\gamma}_0 = (1, 1, 1, 1)^T, \bm{\theta}_0 = (0, 0, 0, 0)^T$, we can use `optim()` to find the model parameters estimation.
+
+```{r opt, echo=FALSE}
+params <- rep(1, 4)
+theta0 <- numeric(4)
+
+fit_theta <- posterior_mode(theta0, 
+                            x = filament1$CAD_Weight, y = filament1$Actual_Weight, 
+                            params = params)
+print(fit_theta)
+```
+
+Based on the law of large numbers, we can assume that when the number of samples is large enough, the estimators are from a normal distribution. Then we can use 4-dimension Gaussian distribution to approximate posterior distribution:
+$$
+\bm{\theta}|y \sim \mathcal{N}_4 (\bm{\mu}, \Sigma),
+$$
+
+where $\bm{\mu} = \hat{\bm{\theta}|y}, \Sigma = S$.
+
+## Importance sampling function
+
+To perform importance sampling, first we use `rmvnorm()`` to extract a large number of samples from the Gaussian distribution. Note that $\beta_3 = \exp\theta_3, \beta_4 = \exp\theta_4$.
+
+After sampling, we use a logarithmic weight formula to calculate the importance of each sample:
+$$
+\log \omega_j = \log p(\bm{\theta}| y) - \log \tilde{p}(\bm{\theta}| y),
+$$
+
+where $\tilde{p}(\bm{\theta}| y)$ is the pdf of $\mathcal{N}_4 (\bm{\mu}, \Sigma)$ 
+
+The calculated log-weights are normalized by `log_sum_exp`:
+$$
+\tilde{\omega}_j = \frac{\omega_j}{\sum_{i=1}^n \omega_i} \Rightarrow \log \tilde{\omega}_j = \log \omega_j - \log \sum_{i=1}^n \omega_i,
+$$
+
+where $\log \tilde{\omega}_j$ is normalized log-weight.
+
+Here are the first 10 samples we got:
+
+```{r sampling, echo=FALSE}
+N <- 10000
+
+IS <- do_importance(N = N, 
+                    mu = fit_theta$mode, S = fit_theta$S, 
+                    x = filament1$CAD_Weight, y = filament1$Actual_Weight, 
+                    params = params)
+print(IS[1:10, ])
+```
+
+Then we verify whether the normalized log-weights meet the requirements of normalization:
+
+```{r test normalization}
+sum(exp(IS$log_weights))
+```
+
+## Importance sampling
+
+### ECDF plot
+
+After taking importance samples, we can use these weighted samples to estimate the ECDF(Empirical Cumulative Density Function):
+$$
+F(x) = \sum_{i=1}^n \tilde{\omega}_i \mathbb{I}(x_i < x)
+$$
+
+By plotting ECDF with different betas, we can compare the difference between weighted and unweighted sampling. It is observed that the ecdf with weighted sampling is smoother, which indicates that the weight to some extent eliminates the influence of random sampling on the estimation. By looking at beta values, we can also infer that $\beta_2$ and $\beta_4$ have a more concentrated distribution.
+
+```{r plot, echo=FALSE, fig.width=7, fig.height=4}
+IS.long <- pivot_longer(IS, starts_with("beta"), 
+                        names_to = "name", values_to = "value")
+
+ggplot(IS.long, aes(value)) + 
+  stat_ewcdf(aes(weights = exp(log_weights), color = "Weighted"), geom = "step") +
+  stat_ecdf(aes(color = "Unweighted"), geom = "step") +
+  scale_color_manual(values = c("red", "blue"), 
+                     labels = c("Weighted", "Unweighted"),
+                     guide = guide_legend(title = "ECDF Type")) +
+  facet_wrap(vars(name), scales = "free_x") + 
+  theme(panel.spacing = unit(0.8, "lines")) + 
+  labs(title = "ECDF of parameters with and without weights", 
+       x = "Parameter Value", 
+       y = "Cumulative Probability")
+```
+
+### Prediction interval construction
+
+Then, we use weighted samples to calculate quantiles to construct prediction intervals:
+$$
+x_\alpha \ s.t. \ F(x_\alpha) = \sum_{i=1}^n \tilde{\omega}_i \mathbb{I}(x_i < x_\alpha) = \alpha
+$$
+
+`summarise()` is used to display the  90% confidence prediction intervals for all $\beta_j$.
+
+```{r make PI, echo=FALSE}
+IS.grouped <- IS.long %>% group_by(name) # 4 groups
+
+PIs <- IS.grouped %>% summarise(lower = make_CI(value, exp(log_weights), c(0.05, 0.95))$lower, 
+                                upper = make_CI(value, exp(log_weights), c(0.05, 0.95))$upper)
+print(PIs)
+```
+
+### Discussion on results
+
+Plot the result of point estimation and interval estimation. We can find that the intercept $\beta_1$ of the Bayesian linear regression model is less than 0, there is a very accurate linear relationship, $\beta_3$ is very uncertain, $\beta_4$ is almost 0, and the model variance does not depend on **CAD_Weight**.
+
+```{r discussion 1, echo=FALSE, fig.width=6, fig.height=4}
+PIs$estimation <- c(fit_theta$mode[1], fit_theta$mode[2], exp(fit_theta$mode[3]), exp(fit_theta$mode[4]))
+
+ggplot(PIs, aes(x = name, y = estimation)) +
+  geom_point(aes(color = "Estimation"), size = 2.5) +
+  geom_errorbar(aes(ymin = lower, ymax = upper, color = "Prediction Interval"), width = 0.25) +
+  scale_color_manual(values = c("blue", "red"), 
+                     labels = c("Estimation", "Prediction Interval")) +
+  labs(x = "Parameters", y = "Estimattion", title = "Prediction Intervals based on Point Estimations")
+```
+
+In terms of importance sampling, we use a scatter plot to observe the relationship between normalized log-weights and beta. We can see that in $\beta_1$, the weight of the sample with a small value is slightly larger than that of the sample with a large value. The weight distribution of $\beta_2$ and $\beta_4$ is relatively average. In $\beta_3$, the sample with a value close to 0 has a large dispersion degree and the larger the value, the lower the weight.
+
+Note that the weights are calculated based on $\bm{\beta}$, so there can be differences in the weights for sample $\beta_j$s having similar values.
+
+```{r discussion 2, echo=FALSE, fig.width=7, fig.height=4}
+ggplot(IS.long, aes(x = value, y = log_weights, color = name)) +
+  geom_point() +
+  facet_wrap(vars(name), scales = "free") + 
+  labs(x = "Parameter Value", y = "Log-Weights", title = "Importance Sampling Log-Weights Distribution")
+```
+
+# Code appendix
+
+```{r code=readLines("code.R"), eval=FALSE, echo=TRUE}
+# Do not change this code chunk
+```

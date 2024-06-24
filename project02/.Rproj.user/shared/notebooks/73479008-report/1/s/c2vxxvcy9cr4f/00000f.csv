@@ -1,0 +1,5 @@
+"0","score_A <- filament1_score("
+"0","  data = filament1,"
+"0","  model = ""A"","
+"0","  newdata = filament1"
+"0",")"

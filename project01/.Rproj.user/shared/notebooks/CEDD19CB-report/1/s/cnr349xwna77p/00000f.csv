@@ -1,0 +1,8 @@
+"0","PIs$estimation <- c(fit_theta$mode[1], fit_theta$mode[2], exp(fit_theta$mode[3]), exp(fit_theta$mode[4]))"
+"0",""
+"0","ggplot(PIs, aes(x = name, y = estimation)) +"
+"0","  geom_point(aes(color = ""Estimation""), size = 2.5) +"
+"0","  geom_errorbar(aes(ymin = lower, ymax = upper, color = ""Prediction Interval""), width = 0.25) +"
+"0","  scale_color_manual(values = c(""blue"", ""red""), "
+"0","                     labels = c(""Estimation"", ""Prediction Interval"")) +"
+"0","  labs(x = ""Parameters"", y = ""Estimattion"", title = ""Prediction Intervals based on Point Estimations"")"

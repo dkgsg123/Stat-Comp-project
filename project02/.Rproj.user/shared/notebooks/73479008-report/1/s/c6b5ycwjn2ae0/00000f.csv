@@ -1,0 +1,5 @@
+"0","result.leave1out_long <- pivot_longer(result.leave1out, cols = c(se, ds), names_to = ""Score"", values_to = ""Value"")"
+"0","ggplot(data = result.leave1out_long) +"
+"0","  geom_point(aes(x = CAD_Weight, y = Value, color = Model)) +"
+"0","  facet_wrap(~Score) +"
+"0","  labs(title = ""Score versus the CAD_weight for Model A and B"", y = ""Score"")"

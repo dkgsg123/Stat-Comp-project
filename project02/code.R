@@ -1,0 +1,553 @@
+<<<<<<< HEAD
+#' Ken Deng, s2617343
+#' Add your own function definitions on this file.
+
+#' neg_log_lik
+#
+#' @description Evaluate the negated log-likelihood for model A and B
+#' @param beta A vector with the beta parameters
+#' @param data A `data.frame` with the same variables as the `filament1` data set.
+#' Must have columns `CAD_Weight` and `Actual_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+
+neg_log_lik <- function(beta, data, model) {
+  mu <- beta[1] + beta[2] * data[["CAD_Weight"]]
+
+  # distinguish between the two models to find the particular standard deviation for the betas
+  if (model == "A") {
+    sigma <- sqrt(exp(beta[3] + beta[4] * data[["CAD_Weight"]]))
+  } else {
+    sigma <- sqrt(exp(beta[3]) + exp(beta[4]) * (data[["CAD_Weight"]]^2))
+  }
+  -sum(dnorm(data[["Actual_Weight"]],
+    mean = mu,
+    sd = sigma,
+    log = TRUE
+  ))
+}
+
+#' filament_estimate
+#
+#' @description Estimate filament models with different variance structure
+#' @param data A `data.frame` with the same variables as the `filament1` data set.
+#' Must have columns `CAD_Weight` and `Actual_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+#' @return An estimation object suitable for use with [filament1_predict()]
+
+filament1_estimate <- function(data, model) {
+  model <- match.arg(model, c("A", "B"))
+  if (model == "A") {
+    beta_start <- c(-0.1, 1.07, -2, 0.05)
+  } else {
+    beta_start <- c(-0.15, 1.07, -13.5, -6.5)
+  }
+  opt <- optim(beta_start,
+    neg_log_lik,
+    data = data,
+    model = model,
+    hessian = TRUE,
+    method = "Nelder-Mead",
+    control = list(maxit = 5000)
+  )
+  fit <- list(
+    model = model,
+    par = opt$par,
+    hessian = opt$hessian
+  )
+  class(fit) <- c("filament1_estimate", "list")
+  fit # betahat and SEbetahat
+}
+
+#' filament1_aux_EV
+#'
+#' @description Evaluate the expectation and variance for model A and B
+#' @param beta A vector with the beta parameters
+#' @param data A `data.frame` containing the required predictors, including `CAD_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+#' @param Sigma_beta : If not NULL, an estimate of the covariance matrix for
+#                 the uncertainty of estimated betas
+#' @return A list with four elements:
+#     E : E(y|beta,x)
+#     V : Var(y|beta,x)
+#     VE : Var(E(y|beta,x)|x) or NULL
+#     EV : E(Var(y|beta,x)|x) or NULL
+
+filament1_aux_EV <- function(beta, data, model = c("A", "B"),
+                             Sigma_beta = NULL) {
+  model <- match.arg(model)
+  if (model == "A") {
+    ZE.0 <- model.matrix(~ 1 + CAD_Weight, data = data)
+    ZV.0 <- model.matrix(~ 1 + CAD_Weight, data = data)
+    ZE <- cbind(ZE.0, ZV.0 * 0)
+    ZV <- cbind(ZE.0 * 0, ZV.0)
+
+    VE <- EV <- NULL
+    if (!is.null(Sigma_beta)) {
+      # E(Var(y|beta,x)|x)
+      EV <- exp(ZV %*% beta + rowSums(ZV * (ZV %*% Sigma_beta)) / 2)
+      # Var(E(y|beta,x)|x)
+      VE <- rowSums(ZE * (ZE %*% Sigma_beta))
+    }
+    out <- list(
+      E = ZE %*% beta, # [X, 0] %*% betahat --- muhat_i
+      V = exp(ZV %*% beta), # exp([0, X] %*% betahat) --- sigmahat_i residual variance
+      VE = VE,
+      EV = EV
+    )
+  } else { # model B
+
+    ZE.0 <- model.matrix(~ 1 + CAD_Weight, data = data) # X
+    ZV.0 <- model.matrix(~ 1 + I(CAD_Weight^2), data = data) # X
+    ZE <- cbind(ZE.0, ZV.0 * 0)
+    ZV <- cbind(ZE.0 * 0, ZV.0)
+
+    VE <- EV <- NULL
+    if (!is.null(Sigma_beta)) {
+      # E(Var(y|beta,x)|x)
+      # (pmin: Ignore large Sigma_beta values)
+      EV <- ZV %*% exp(beta + pmin(0.5^2, diag(Sigma_beta)) / 2)
+      # Var(E(y|beta,x)|x)
+      VE <- rowSums(ZE * (ZE %*% Sigma_beta))
+    }
+    out <- list(
+      E = ZE %*% beta,
+      V = ZV %*% exp(beta),
+      VE = VE,
+      EV = EV
+    )
+  }
+  out # hat E() and hat Var(), hat Var() of hat mu for each y_i
+}
+
+#' filament1_predict
+#'
+#' @description Evaluate the prediction means, standard deviations, and 95% PI
+#' @param data train data
+#' @param model the linear Model A or B
+#' @param newdata test data
+#' @return data.frame with mean, sd, lower bound, upper bound for test data
+
+filament1_predict <- function(data, model, newdata) {
+  # fit the model
+  fit0 <- filament1_estimate(data = data, model = model)
+  # prediction on test data
+  pred0 <- filament1_aux_EV(
+    beta = fit0$par,
+    data = newdata,
+    model = model,
+    Sigma_beta = solve(fit0$hessian)
+  )
+
+  # prediction distribution
+  mean <- pred0$E
+  sd <- sqrt(pred0$EV + pred0$VE)
+  q <- qt(1 - 0.05 / 2, df = Inf)
+  lwr <- mean - q * sd
+  upr <- mean + q * sd
+
+  # return
+  data.frame(
+    mean = mean, sd = sd,
+    lwr = lwr, upr = upr
+  )
+}
+
+#' filament1_score
+#'
+#' @description Evaluate the squared error (ES) and Dawid-Sebastiani (DS) scores.
+#' @param data train data
+#' @param model the linear Model A or B
+#' @param newdata test data
+#' @return data.frame that extends the original data frame with additional columns:
+#'         mean, sd, lower bound, upper bound, se and ds of prediction distribution and prediction scores.
+
+filament1_score <- function(data, model, newdata) {
+  # fit the model and predict the test data
+  pred <- filament1_predict(
+    data = data,
+    model = model,
+    newdata = newdata
+  )
+
+  # calculate the score for each prediction
+  result <- cbind(newdata, pred) %>%
+    mutate(
+      se = (Actual_Weight - mean)^2,
+      ds = (Actual_Weight - mean)^2 / sd^2 + 2 * log(sd)
+    )
+
+  # return
+  result
+}
+
+#' leave1out
+#'
+#' @description leave-one-out cross-validation for the selected model for each observation
+#' @param data dataset
+#' @param model model the linear Model A or B
+#' @return data.frame that extends the original data frame with four additional columns:
+#'         mean, sd, se and ds of leave-one-out prediction means, standard deviations, and prediction scores.
+
+leave1out <- function(data, model) {
+  n <- nrow(data)
+  mean <- numeric(n)
+  sd <- numeric(n)
+
+  for (i in 1:n) {
+    # train data
+    leave_1_out_data <- data[-i, ]
+
+    # fit the model and predict the test data
+    fit0 <- filament1_estimate(
+      data = leave_1_out_data,
+      model = model
+    )
+    pred0 <- filament1_aux_EV(
+      beta = fit0$par,
+      data = data[i, ],
+      model = model,
+      Sigma_beta = solve(fit0$hessian)
+    )
+
+    # prediction distribution
+    mean[i] <- pred0$E
+    sd[i] <- sqrt(pred0$EV + pred0$VE)
+  }
+
+  pred.dist <- data.frame(
+    mean = mean, sd = sd
+  )
+
+  result <- cbind(data, pred.dist) %>%
+    mutate(
+      se = (Actual_Weight - mean)^2,
+      ds = (Actual_Weight - mean)^2 / (sd)^2 + 2 * log(sd)
+    )
+
+  # return
+  result
+}
+
+#' arch_loglike
+#'
+#' @description Evaluates the combined log-likelihood for a collection y-observations.
+#' @param y y-observations
+#' @param params data.frame with columns samples N and phi
+#' @return the log-likelihood for each row-pair (N, phi)
+
+arch_loglike <- function(y, params) {
+  y1 <- y[1]
+  y2 <- y[2]
+  N <- params$N
+  Phi <- params$Phi
+
+  # return loglike
+  -lgamma(y1 + 1) - lgamma(y2 + 1) - lgamma(N - y1 + 1) - lgamma(N - y2 + 1) +
+    2 * lgamma(N + 1) + (y1 + y2) * log(Phi) + (2 * N - y1 - y2) * log(1 - Phi)
+}
+
+#' estimate
+#'
+#' @description Monte Carlo integration method to approximate p(y), E(N|y), and E(phi|y).
+#' @param y y-observations
+#' @param xi parameter of N prior distribution
+#' @param a parameter of phi prior distribution
+#' @param b parameter of phi prior distribution
+#' @param K number of samples
+#' @return estimations for p(y), E(N|y), and E(phi|y)
+
+estimate <- function(y, xi, a, b, K) {
+  # sampling
+  N <- rgeom(n = K, prob = xi)
+  Phi <- rbeta(n = K, shape1 = a, shape2 = b)
+  params <- data.frame(N = N, Phi = Phi)
+  likelihood <- exp(arch_loglike(y = y, params = params))
+
+  # compute estimation
+  density_y <- 1 / (K) * (sum(likelihood))
+  expectation_N <- 1 / (K * density_y) * (sum(N * likelihood))
+  expectation_Phi <- 1 / (K * density_y) * (sum(Phi * likelihood))
+
+  # return
+  data.frame(p.y = density_y, E.N_y = expectation_N, E.Phi_y = expectation_Phi)
+}
+=======
+#' Ken Deng, s2617343
+#' Add your own function definitions on this file.
+
+#' neg_log_lik
+#
+#' @description Evaluate the negated log-likelihood for model A and B
+#' @param beta A vector with the beta parameters
+#' @param data A `data.frame` with the same variables as the `filament1` data set.
+#' Must have columns `CAD_Weight` and `Actual_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+
+neg_log_lik <- function(beta, data, model) {
+  mu <- beta[1] + beta[2] * data[["CAD_Weight"]]
+
+  # distinguish between the two models to find the particular standard deviation for the betas
+  if (model == "A") {
+    sigma <- sqrt(exp(beta[3] + beta[4] * data[["CAD_Weight"]]))
+  } else {
+    sigma <- sqrt(exp(beta[3]) + exp(beta[4]) * (data[["CAD_Weight"]]^2))
+  }
+  -sum(dnorm(data[["Actual_Weight"]],
+    mean = mu,
+    sd = sigma,
+    log = TRUE
+  ))
+}
+
+#' filament_estimate
+#
+#' @description Estimate filament models with different variance structure
+#' @param data A `data.frame` with the same variables as the `filament1` data set.
+#' Must have columns `CAD_Weight` and `Actual_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+#' @return An estimation object suitable for use with [filament1_predict()]
+
+filament1_estimate <- function(data, model) {
+  model <- match.arg(model, c("A", "B"))
+  if (model == "A") {
+    beta_start <- c(-0.1, 1.07, -2, 0.05)
+  } else {
+    beta_start <- c(-0.15, 1.07, -13.5, -6.5)
+  }
+  opt <- optim(beta_start,
+    neg_log_lik,
+    data = data,
+    model = model,
+    hessian = TRUE,
+    method = "Nelder-Mead",
+    control = list(maxit = 5000)
+  )
+  fit <- list(
+    model = model,
+    par = opt$par,
+    hessian = opt$hessian
+  )
+  class(fit) <- c("filament1_estimate", "list")
+  fit # betahat and SEbetahat
+}
+
+#' filament1_aux_EV
+#'
+#' @description Evaluate the expectation and variance for model A and B
+#' @param beta A vector with the beta parameters
+#' @param data A `data.frame` containing the required predictors, including `CAD_Weight`
+#' @param model Either "A" for a log-linear variance model, or "B" for a proportional
+#' scaling error model
+#' @param Sigma_beta : If not NULL, an estimate of the covariance matrix for
+#                 the uncertainty of estimated betas
+#' @return A list with four elements:
+#     E : E(y|beta,x)
+#     V : Var(y|beta,x)
+#     VE : Var(E(y|beta,x)|x) or NULL
+#     EV : E(Var(y|beta,x)|x) or NULL
+
+filament1_aux_EV <- function(beta, data, model = c("A", "B"),
+                             Sigma_beta = NULL) {
+  model <- match.arg(model)
+  if (model == "A") {
+    ZE.0 <- model.matrix(~ 1 + CAD_Weight, data = data)
+    ZV.0 <- model.matrix(~ 1 + CAD_Weight, data = data)
+    ZE <- cbind(ZE.0, ZV.0 * 0)
+    ZV <- cbind(ZE.0 * 0, ZV.0)
+
+    VE <- EV <- NULL
+    if (!is.null(Sigma_beta)) {
+      # E(Var(y|beta,x)|x)
+      EV <- exp(ZV %*% beta + rowSums(ZV * (ZV %*% Sigma_beta)) / 2)
+      # Var(E(y|beta,x)|x)
+      VE <- rowSums(ZE * (ZE %*% Sigma_beta))
+    }
+    out <- list(
+      E = ZE %*% beta, # [X, 0] %*% betahat --- muhat_i
+      V = exp(ZV %*% beta), # exp([0, X] %*% betahat) --- sigmahat_i residual variance
+      VE = VE,
+      EV = EV
+    )
+  } else { # model B
+
+    ZE.0 <- model.matrix(~ 1 + CAD_Weight, data = data) # X
+    ZV.0 <- model.matrix(~ 1 + I(CAD_Weight^2), data = data) # X
+    ZE <- cbind(ZE.0, ZV.0 * 0)
+    ZV <- cbind(ZE.0 * 0, ZV.0)
+
+    VE <- EV <- NULL
+    if (!is.null(Sigma_beta)) {
+      # E(Var(y|beta,x)|x)
+      # (pmin: Ignore large Sigma_beta values)
+      EV <- ZV %*% exp(beta + pmin(0.5^2, diag(Sigma_beta)) / 2)
+      # Var(E(y|beta,x)|x)
+      VE <- rowSums(ZE * (ZE %*% Sigma_beta))
+    }
+    out <- list(
+      E = ZE %*% beta,
+      V = ZV %*% exp(beta),
+      VE = VE,
+      EV = EV
+    )
+  }
+  out # hat E() and hat Var(), hat Var() of hat mu for each y_i
+}
+
+#' filament1_predict
+#'
+#' @description Evaluate the prediction means, standard deviations, and 95% PI
+#' @param data train data
+#' @param model the linear Model A or B
+#' @param newdata test data
+#' @return data.frame with mean, sd, lower bound, upper bound for test data
+
+filament1_predict <- function(data, model, newdata) {
+  # fit the model
+  fit0 <- filament1_estimate(data = data, model = model)
+  # prediction on test data
+  pred0 <- filament1_aux_EV(
+    beta = fit0$par,
+    data = newdata,
+    model = model,
+    Sigma_beta = solve(fit0$hessian)
+  )
+
+  # prediction distribution
+  mean <- pred0$E
+  sd <- sqrt(pred0$EV + pred0$VE)
+  q <- qt(1 - 0.05 / 2, df = Inf)
+  lwr <- mean - q * sd
+  upr <- mean + q * sd
+
+  # return
+  data.frame(
+    mean = mean, sd = sd,
+    lwr = lwr, upr = upr
+  )
+}
+
+#' filament1_score
+#'
+#' @description Evaluate the squared error (ES) and Dawid-Sebastiani (DS) scores.
+#' @param data train data
+#' @param model the linear Model A or B
+#' @param newdata test data
+#' @return data.frame that extends the original data frame with additional columns:
+#'         mean, sd, lower bound, upper bound, se and ds of prediction distribution and prediction scores.
+
+filament1_score <- function(data, model, newdata) {
+  # fit the model and predict the test data
+  pred <- filament1_predict(
+    data = data,
+    model = model,
+    newdata = newdata
+  )
+
+  # calculate the score for each prediction
+  result <- cbind(newdata, pred) %>%
+    mutate(
+      se = (Actual_Weight - mean)^2,
+      ds = (Actual_Weight - mean)^2 / sd^2 + 2 * log(sd)
+    )
+
+  # return
+  result
+}
+
+#' leave1out
+#'
+#' @description leave-one-out cross-validation for the selected model for each observation
+#' @param data dataset
+#' @param model model the linear Model A or B
+#' @return data.frame that extends the original data frame with four additional columns:
+#'         mean, sd, se and ds of leave-one-out prediction means, standard deviations, and prediction scores.
+
+leave1out <- function(data, model) {
+  n <- nrow(data)
+  mean <- numeric(n)
+  sd <- numeric(n)
+
+  for (i in 1:n) {
+    # train data
+    leave_1_out_data <- data[-i, ]
+
+    # fit the model and predict the test data
+    fit0 <- filament1_estimate(
+      data = leave_1_out_data,
+      model = model
+    )
+    pred0 <- filament1_aux_EV(
+      beta = fit0$par,
+      data = data[i, ],
+      model = model,
+      Sigma_beta = solve(fit0$hessian)
+    )
+
+    # prediction distribution
+    mean[i] <- pred0$E
+    sd[i] <- sqrt(pred0$EV + pred0$VE)
+  }
+
+  pred.dist <- data.frame(
+    mean = mean, sd = sd
+  )
+
+  result <- cbind(data, pred.dist) %>%
+    mutate(
+      se = (Actual_Weight - mean)^2,
+      ds = (Actual_Weight - mean)^2 / (sd)^2 + 2 * log(sd)
+    )
+
+  # return
+  result
+}
+
+#' arch_loglike
+#'
+#' @description Evaluates the combined log-likelihood for a collection y-observations.
+#' @param y y-observations
+#' @param params data.frame with columns samples N and phi
+#' @return the log-likelihood for each row-pair (N, phi)
+
+arch_loglike <- function(y, params) {
+  y1 <- y[1]
+  y2 <- y[2]
+  N <- params$N
+  Phi <- params$Phi
+
+  # return loglike
+  -lgamma(y1 + 1) - lgamma(y2 + 1) - lgamma(N - y1 + 1) - lgamma(N - y2 + 1) +
+    2 * lgamma(N + 1) + (y1 + y2) * log(Phi) + (2 * N - y1 - y2) * log(1 - Phi)
+}
+
+#' estimate
+#'
+#' @description Monte Carlo integration method to approximate p(y), E(N|y), and E(phi|y).
+#' @param y y-observations
+#' @param xi parameter of N prior distribution
+#' @param a parameter of phi prior distribution
+#' @param b parameter of phi prior distribution
+#' @param K number of samples
+#' @return estimations for p(y), E(N|y), and E(phi|y)
+
+estimate <- function(y, xi, a, b, K) {
+  # sampling
+  N <- rgeom(n = K, prob = xi)
+  Phi <- rbeta(n = K, shape1 = a, shape2 = b)
+  params <- data.frame(N = N, Phi = Phi)
+  likelihood <- exp(arch_loglike(y = y, params = params))
+
+  # compute estimation
+  density_y <- 1 / (K) * (sum(likelihood))
+  expectation_N <- 1 / (K * density_y) * (sum(N * likelihood))
+  expectation_Phi <- 1 / (K * density_y) * (sum(Phi * likelihood))
+
+  # return
+  data.frame(p.y = density_y, E.N_y = expectation_N, E.Phi_y = expectation_Phi)
+}
+>>>>>>> 7dc8da347d623c1e78355b38242813f25bbda514

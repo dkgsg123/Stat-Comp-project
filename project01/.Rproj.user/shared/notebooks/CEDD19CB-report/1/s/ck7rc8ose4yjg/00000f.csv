@@ -1,0 +1,4 @@
+"0","ggplot(IS.long, aes(x = value, y = log_weights, color = name)) +"
+"0","  geom_point() +"
+"0","  facet_wrap(vars(name), scales = ""free"") + "
+"0","  labs(x = ""Parameter Value"", y = ""Log-Weights"", title = ""Importance Sampling Log-Weights Distribution"")"

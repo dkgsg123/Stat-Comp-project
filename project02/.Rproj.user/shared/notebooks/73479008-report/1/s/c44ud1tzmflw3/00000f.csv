@@ -1,0 +1,5 @@
+"0","knitr::kable(head(data.frame("
+"0","  N = N.sample,"
+"0","  Phi = Phi.sample,"
+"0","  loglike = loglike"
+"0",")))"

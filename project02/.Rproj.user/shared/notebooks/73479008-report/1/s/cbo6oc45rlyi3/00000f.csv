@@ -1,0 +1,6 @@
+"0","result_summary <- result.leave1out %>%"
+"0","  group_by(Model) %>%"
+"0","  summarise("
+"0","    se = mean(se),"
+"0","    ds = mean(ds)"
+"0","  )"

@@ -1,0 +1,4 @@
+"0","standard.error.P <- data.frame("
+"0","  se = sd(statistic$se > statistic0$se) / sqrt(J),"
+"0","  ds = sd(statistic$ds > statistic0$ds) / sqrt(J)"
+"0",")"

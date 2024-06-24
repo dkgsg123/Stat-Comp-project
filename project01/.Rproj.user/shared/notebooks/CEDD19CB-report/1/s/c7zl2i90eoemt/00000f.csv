@@ -1,0 +1,6 @@
+"0","fit_B = filament1_estimate(data = filament1, model = ""B"")"
+"0",""
+"0","se_B <- sqrt(diag(solve(fit_B$hessian)))"
+"0","lower_B <- fit_B$optimal - t_value * se_B"
+"0","upper_B <- fit_B$optimal + t_value * se_B"
+"0","width_B <- upper_B - lower_B"

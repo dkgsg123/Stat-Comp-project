@@ -1,0 +1,570 @@
+---
+title: 'Project 2'
+author: "Ken Deng (s2617343)"
+output:
+  html_document:
+    number_sections: yes
+  pdf_document:
+    number_sections: yes
+header-includes:
+  - \newcommand{\bm}[1]{\boldsymbol{#1}}
+  - \newcommand{\mat}[1]{\begin{bmatrix}#1\end{bmatrix}}
+  - \newcommand{\pE}{\mathsf{E}}
+  - \newcommand{\pVar}{{\mathsf{Var}}
+---
+
+```{r setup, include = FALSE}
+# Modify this setup code chunk to set options
+# or add extra packages etc if needed.
+# See the project instructions for more details
+# on what code to show, and where/how.
+
+# Set default code chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  eval = TRUE
+)
+
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
+theme_set(theme_bw())
+
+# To give the same random number sequence every time the document is knit:ed,
+# making it easier to discuss the specific numbers in the text:
+set.seed(12345L)
+```
+
+```{r code=readLines("code.R"), eval=TRUE, echo=FALSE, results='hide'}
+# Do not change this code chunk
+# Load function definitions
+source("code.R")
+```
+
+# Part 1: 3D printer
+
+```{r, echo=FALSE}
+load("filament1.rda")
+```
+
+## Question 1
+
+We use 2 models to capture the relationship between **CAD_Weight** and **Actual_Weight**.
+
+- Model A: $y_i = \beta_1 + \beta_2 x_i + \varepsilon_i$, where $\varepsilon_i \sim \mathcal{N}(0, \exp(\beta_3 + \beta_4 x_i))$.
+
+- Model B: $y_i = \beta_1 + \beta_2 x_i + \varepsilon_i$, where $\varepsilon_i \sim \mathcal{N}(0, \exp(\beta_3) + \exp(\beta_4) x_i^2)$.
+
+We use the observations to fit the model:
+$$
+\hat{\bm{\beta}} = \text{argmin}_{\bm{\beta} \in \mathbb{R}^4} -\ell (\bm{\beta}), \hat{\Sigma} = H^{-1},
+$$
+
+where $H$ is Hessian Matrix.
+
+For fitted value of observations, suppose $Z_E = \mat{1 \quad x \quad 0 \quad 0 \\ \vdots \quad \vdots \quad \vdots \quad \vdots \\ 1 \quad x \quad 0 \quad 0} \in \mathbb{R}^{86 \times 4}$:
+$$
+\hat{\mu} = \hat{\beta}_1 + \hat{\beta}_2 x \\
+\Rightarrow \hat{\mu} = Z_E \hat{\bm{\beta}} \text{ (in matrix)}
+$$
+
+For estimated sigma of observations, suppose:
+
+- Model A:$Z_V = \mat{0 \quad 0 \quad 1 \quad x \\ \vdots \quad \vdots \quad \vdots \quad \vdots \\ 0 \quad 0 \quad 1 \quad x} \in \mathbb{R}^{86 \times 4}$.
+
+- Model B:$Z_V = \mat{0 \quad 0 \quad 1 \quad x^2 \\ \vdots \quad \vdots \quad \vdots \quad \vdots \\ 0 \quad 0 \quad 1 \quad x^2} \in \mathbb{R}^{86 \times 4}$.
+$$
+\hat{\sigma}^2_A = \exp(\hat{\beta}_3 + \hat{\beta}_4 x), \ \hat{\sigma}^2_B = \exp(\hat{\beta}_3) + \exp(\hat{\beta}_4) x^2 \\
+\Rightarrow \hat{\sigma}^2_A = \exp(Z_V \hat{\bm{\beta}}), \hat{\sigma}^2_B = Z_V \exp(\hat{\bm{\beta}}) \text{ (in matrix)}
+$$
+
+We now compute the predictive distribution for Model A and B. Let $y_{n+1}$ be new data, consider the distribution of $y_{n+1} - \hat{\mu}_{n+1}$:
+$$
+y_{n+1} - \hat{\mu}_{n+1} \sim \mathcal{N} (0, \mathsf{Var} (y_{n+1} - \hat{\mu}_{n+1})), \\
+\text{where } \mathsf{Var} (y_{n+1} - \hat{\mu}_{n+1}) = \mathsf{Var} (y_{n+1}) + \mathsf{Var} (\hat{\mu}_{n+1}) \quad (\text{by independent of } \varepsilon \text{ and } \hat{\mu} ).
+$$
+
+Based on the above analysis, we can compute 95% Prediction Interval(PI) for $y_{n+1}$:
+$$
+\frac{y_{n+1} - \hat{\mu}_{n+1}}{\sqrt{\mathsf{Var}(y_{n+1} - \hat{\mu}_{n+1})}} \sim \mathcal{N} (0, 1). \\
+\text{95% PI: }  \hat{\mu}_{n+1} \pm z_{0.975} \sqrt{\mathsf{Var}(y_{n+1}) + \mathsf{Var}(\hat{\mu}_{n+1})}
+$$
+
+According to the notation from Lecture 06, we represent the estimation uncertainty by a distribution of potential parameter values as follows:
+
+The parameter vector $\bm{\beta}$ given the input vector $\bm{x}$ is assumed to follow a normal distribution:
+$$
+\bm{\beta}|\bm{x} \sim \mathcal{N}(\hat{\bm{\beta}}, \hat{\Sigma}),
+$$
+
+where $\bm{\beta}|\bm{x}$ is treated as a random variable and $\hat{\bm{\beta}} \text{ and } \hat{\Sigma}$ are considered fixed values representing the estimated mean and covariance matrix respectively.
+
+Hence  we consider the prediction model:
+$$
+y_{n+1} \sim \mathcal{N} (\hat{\mu}_{n+1}, \hat{\sigma}_{n+1}),
+$$
+
+where $\hat{\sigma}_{n+1}$ is $\mathsf{E}(\mathsf{Var}(y_{n+1})) + \mathsf{Var}(\hat{\mu}_{n+1})$.
+
+We now rewrite $\mathsf{E}(\mathsf{Var}(y_{n+1}))$ and $\mathsf{Var}(\hat{\mu}_{n+1})$ using $\bm{\beta}|\bm{x}$. Note that $Z_E = (1, x_{n+1}, 0, 0)$, $Z_V = \left\{\begin{matrix} (0, 0, 1, x_{n+1}) & \text{Model A} \\ (0, 0, 1, x_{n+1}^2) & \text{Model B} \end{matrix}\right.$.
+$$
+\mathsf{Var}(\hat{\mu}_{n+1}) = \mathsf{Var} (\mathsf{E} (Z_E\bm{\beta}|\bm{x})) = Z_E\mathsf{Cov}(\bm{\beta}|\bm{x}, \bm{\beta}|\bm{x})Z_E^T = Z_E\hat{\Sigma}Z_E^T.
+$$
+
+Note that if $x \sim \mathcal{N}(\mu, \sigma^2)$, then $\mathsf{E}(\exp(x)) = \exp(\mu + \sigma^2 / 2)$
+$$
+\text{Model A: } \mathsf{E}(\mathsf{Var}(y_{n+1})) = \mathsf{E}(\exp(Z_V \bm{\beta}|\bm{x})) = \exp(Z_V\hat{\bm{\beta}} + Z_V\hat{\Sigma}Z_V^T / 2) \\ 
+\text{Model B: } \mathsf{E}(\mathsf{Var}(y_{n+1})) = \mathsf{E}(Z_V \exp(\bm{\beta}|\bm{x})) = Z_V \exp(\hat{\bm{\beta}} + \text{diag}(\hat{\Sigma}) / 2).
+$$
+
+Hence the prediction means, standard deviations, and 95% PI have the formula:
+$$
+\hat{\mu}_{n+1} = Z_E \hat{\boldsymbol{\beta}}, \hat{\sigma}_{n+1} = \mathsf{E}(\mathsf{Var}(y_{n+1})) + Z_E\hat{\Sigma}Z_E^T, \\
+\text{95% PI: }  \hat{\mu}_{n+1} \pm z_{0.975} \hat{\sigma}_{n+1}.
+$$
+
+```{r}
+pred_A <- filament1_predict(
+  data = filament1,
+  model = "A",
+  newdata = filament1
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(pred_A))
+```
+
+```{r}
+pred_B <- filament1_predict(
+  data = filament1,
+  model = "B",
+  newdata = filament1
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(pred_B))
+```
+
+In general, both models demonstrate a satisfactory fitting effect, exhibiting prediction intervals that widen with increasing values of the independent variable, aligning well with our model hypothesis. Notably, we observe that model A exhibits greater uncertainty, particularly as the independent variable grows.
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+ggplot(
+  rbind(
+    cbind(pred_A, filament1, Model = "A"),
+    cbind(pred_B, filament1, Model = "B")
+  ),
+  mapping = aes(CAD_Weight)
+) +
+  geom_line(aes(y = mean, col = Model)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr, fill = Model), alpha = 0.25) +
+  geom_point(aes(y = Actual_Weight), data = filament1) +
+  labs(title = "Prediction Distribution", y = "Actual_Weight")
+```
+
+## Question 2
+
+We have the formula for computing Squared Error:
+$$
+SE(y_{n+1}) = (y_{n+1} - \hat{\mu}_{n+1})^2
+$$
+
+Anothoer formula for Dawid-Sebastiani score:
+$$
+DS(y_{n+1}) = \frac{(y_{n+1} - \hat{\mu}_{n+1})^2}{\hat{\sigma}_{n+1}^2} + \log(\hat{\sigma}_{n+1}^2)
+$$
+
+We now use `filament1_score` to compute the score for prediction.
+
+For Model A:
+
+```{r}
+score_A <- filament1_score(
+  data = filament1,
+  model = "A",
+  newdata = filament1
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(score_A))
+```
+
+For Model B:
+
+```{r}
+score_B <- filament1_score(
+  data = filament1,
+  model = "B",
+  newdata = filament1
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(score_B))
+```
+
+Here we use the scatter plot to check the score of the predicted values.
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+ggplot(rbind(
+  cbind(score_A, Model = "A"),
+  cbind(score_B, Model = "B")
+), aes(x = se, y = ds, color = Model)) +
+  geom_point(size = 2) +
+  labs(title = "Scores of Model A and B", x = "Squared Error", y = "DS Score")
+```
+
+## Question 3
+
+### leave-one-out Cross-Validation
+
+For each prediction model $F_i$, we use $\{(x_j, y_j): j \ne i\}$ to fit.
+$$
+\hat{\bm{\beta}}_i = \text{argmin}_{\bm{\beta} \in \mathbb{R}^4} -\ell (\bm{\beta} ; y_1, \dots, y_{i-1}, y_{i+1}, \dots, y_n), \hat{\Sigma}_i = H_i^{-1}.
+$$
+
+Then, we use fitted prediction model $F_i$ to predict new data $y_i$. Note that here the predict data in matrix is: $Z_E = (1, x_i, 0, 0)$, $Z_V = \left\{\begin{matrix} (0, 0, 1, x_{i}) & \text{Model A} \\ (0, 0, 1, x_{i}^2) & \text{Model B} \end{matrix}\right.$.
+
+The leave-one-out prediction means, standard deviations, and prediction scores have the formula:
+$$
+\hat{\mu}_i = Z_E \hat{\boldsymbol{\beta}}_i, \hat{\sigma}_i = \mathsf{E}(\mathsf{Var}(y_{i})) + Z_E\hat{\Sigma}_iZ_E^T, \\
+SE(y_i) = (y_{i} - \hat{\mu}_{i})^2, DS(y_i) = \frac{(y_{i} - \hat{\mu}_{i})^2}{\hat{\sigma}_{i}^2} + \log(\hat{\sigma}_{i}^2).
+$$
+
+For Model A:
+
+```{r}
+result_A.leave1out <- leave1out(
+  data = filament1,
+  model = "A"
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(result_A.leave1out))
+```
+
+For Model B:
+
+```{r}
+result_B.leave1out <- leave1out(
+  data = filament1,
+  model = "B"
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(result_B.leave1out))
+```
+
+We check the result of leave-one-out visually. The result shows that the fitting effect is quite good, and the prediction of the model has a slight deviation with the increase of independent variables.
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+result.leave1out <- rbind(
+  cbind(result_A.leave1out, Model = "A"),
+  cbind(result_B.leave1out, Model = "B")
+)
+ggplot(result.leave1out,
+  mapping = aes(CAD_Weight)
+) +
+  geom_line(aes(y = mean, col = Model)) +
+  geom_point(aes(y = Actual_Weight), data = filament1) +
+  labs(title = "leave-one-out Validation", y = "Actual_Weight")
+```
+
+Subsequently, we examine the correlation between predicted scores and predictors. Notably, both scores exhibit a positive trend with increasing predictors, aligning with our model assumption.
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+result.leave1out_long <- pivot_longer(result.leave1out, cols = c(se, ds), names_to = "Score", values_to = "Value")
+ggplot(data = result.leave1out_long) +
+  geom_point(aes(x = CAD_Weight, y = Value, color = Model)) +
+  facet_wrap(~Score) +
+  labs(title = "Score versus the CAD_weight for Model A and B", y = "Score")
+```
+
+### Average leave-one-out Score
+
+For Model A, let $S(F_i^A, y_i)$ denote the score using prediction model $F_i$ on the new data $y_i$. Then, the average leave-one-out score $S_A$ has the formula:
+$$
+S_A = \frac{1}{n}\sum_{i = 1}^n S(F_i^A, y_i)
+$$
+
+Similarly, for Model B, the average leave-one-out score $S_B$ has the formula:
+$$
+S_B = \frac{1}{n}\sum_{i = 1}^n S(F_i^B, y_i)
+$$
+
+```{r}
+result_summary <- result.leave1out %>%
+  group_by(Model) %>%
+  summarise(
+    se = mean(se),
+    ds = mean(ds)
+  )
+```
+
+```{r, echo=FALSE}
+knitr::kable(result_summary)
+```
+
+Once again, we employ a scatter plot to examine the scores of the predicted values, highlighting the recently obtained averages.
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+ggplot() +
+  geom_point(
+    result.leave1out,
+    mapping = aes(x = se, y = ds, color = Model),
+    size = 2
+  ) +
+  geom_point(
+    result_summary,
+    mapping = aes(x = se, y = ds, color = Model),
+    shape = 4,
+    size = 5,
+  ) +
+  labs(title = "Scores and Average Scores of Model A and B", x = "Squared Error", y = "DS Score")
+```
+
+The results suggest that the mean square error of both models is comparable, indicating similar prediction accuracy between them. However, model B exhibits a smaller DS score. This reduction in DS score is attributed to the incorporation of variance alongside mean square error, highlighting the lower uncertainty associated with model B.
+
+## Question 4
+
+### Monte Carlo p-value Estimation
+
+Our hypothesis for Model A and Model B is:
+$$
+H_0: \text{A and B have pairwise exchangeability} \text{ v.s. } H_1: \text{B is better than A}
+$$
+
+For testing the average difference, we can use test statistic:
+$$
+T = \frac{1}{n}\sum_{i=1}^{n} S_i^{\Delta}, 
+$$
+
+where $S_i^{\Delta} = S(F_i^A, y_i) - S(F_i^B, y_i)$.
+
+We now can use Monte Carlo Method to simulate the distribution of $T$. For each $j = 1, \dots, J$, we randomly swap the sign of $S_i^{\Delta}$, that is $\mathbb{P}\{S_i^{\Delta (j)} = S_i^{\Delta}\} = \mathbb{P}\{S_i^{\Delta (j)} = -S_i^{\Delta}\} = \frac{1}{2}$. We then compute test statistic:
+$$ 
+T^{(j)} = \frac{1}{n}\sum_{i=1}^{n} S_i^{\Delta (j)}, j = 1, \dots, J.
+$$
+
+According to the theory of Monte Carlo Probability Computation, we have an unbiased estimator of the p-value for testing our hypothesis:
+$$
+\hat{p}_{value} = \frac{1}{J} \sum_{j = 1}^J \mathbb{1} \{ T^{(j)} \ge  T \}.
+$$
+
+Let $J = 10000$. 
+
+```{r}
+# S_Delta for each prediction
+score_diff <- data.frame(
+  se = result_A.leave1out$se - result_B.leave1out$se,
+  ds = result_A.leave1out$ds - result_B.leave1out$ds
+)
+
+# test statistic
+statistic0 <- score_diff %>%
+  summarise(
+    se = mean(se),
+    ds = mean(ds)
+  )
+
+# sample number
+J <- 10000
+
+# sampling
+statistic <- data.frame(
+  se = numeric(J),
+  ds = numeric(J)
+)
+
+for (loop in seq_len(J)) {
+  random_sign <- sample(
+    x = c(-1, 1),
+    size = nrow(score_diff),
+    replace = TRUE
+  )
+  statistic[loop, ] <- score_diff %>% summarise(
+    se = mean(random_sign * se),
+    ds = mean(random_sign * ds)
+  )
+}
+
+# p-value computation
+p_values <-
+  statistic %>%
+  summarise(
+    se = mean(se > statistic0$se),
+    ds = mean(ds > statistic0$ds)
+  )
+```
+
+```{r, echo=FALSE}
+rownames(p_values) <- "p-value"
+knitr::kable(p_values)
+```
+
+```{r, echo=FALSE, fig.width=7, fig.height=5, fig.align='center'}
+statistic_long <- pivot_longer(statistic, cols = c(se, ds), names_to = "Score", values_to = "Value")
+statistic0_long <- pivot_longer(statistic0, cols = c(se, ds), names_to = "Score", values_to = "Value")
+
+ggplot() +
+  geom_jitter(
+    data = statistic_long,
+    aes(x = Score, y = Value, color = "Monte Carlo"),
+    width = 0.2, alpha = 0.7
+  ) +
+  labs(
+    title = "Monte Carlo Sampling of SE and DS Score Statistic",
+    x = "Scores", y = "Statistics",
+    color = "ds"
+  ) +
+  geom_point(
+    data = statistic0_long,
+    aes(x = Score, y = Value, color = "test statistic")
+  ) +
+  scale_color_manual(
+    values = c("Monte Carlo" = "skyblue", "test statistic" = "red"),
+    name = "Statistics"
+  )
+```
+
+### Monte Carlo Standard Error
+
+Standard Error is the standard deviation of sample mean $\bar{X}$, then Monte Carlo standard error has the formula:
+$$
+\hat{\sigma}_{\bar{X}} = \frac{\hat{\sigma}_X}{\sqrt{J}} 
+$$
+
+Monte Carlo Standard Error of test statistics $T$:
+
+```{r}
+standard.error.T <- data.frame(
+  se = sd(statistic$se) / sqrt(J),
+  ds = sd(statistic$ds) / sqrt(J)
+)
+```
+
+```{r, echo=FALSE}
+rownames(standard.error.T) <- "Standard Error"
+knitr::kable(standard.error.T)
+```
+
+Monte Carlo Standard Error of p-value estimator $p_{value}= \mathbb{1} \{ T^{(j)} \ge  T \}$:
+
+```{r}
+standard.error.P <- data.frame(
+  se = sd(statistic$se > statistic0$se) / sqrt(J),
+  ds = sd(statistic$ds > statistic0$ds) / sqrt(J)
+)
+```
+
+```{r, echo=FALSE}
+rownames(standard.error.P) <- "Standard Error"
+knitr::kable(standard.error.P)
+```
+
+The small standard errors observed in both samples and p-value estimators generated by our Monte Carlo method suggest that our generated samples and p-value estimators closely resemble the population. This implies a high reliability of the obtained p-values.
+
+Based on the p-value results for the squared errors of the two models, we infer that the two models exhibit pairwise exchangeability. However, when considering the DS scores, it appears that the performance of model B surpasses that of model A.
+
+Taking into account the definitions of squared error and DS score, we can conclude that both model A and model B demonstrate similar levels of accuracy. Nonetheless, model B's predictions exhibit higher certainty.
+
+# Part 2: Archaeology in the Baltic sea
+
+## Question 1
+
+We assume that $Y$ is from Binominal distribution with parameters $N, \phi$:
+$$
+Y \sim \text{Bino}(N, \phi), p_Y(y|N, \phi) = \left(\begin{matrix} N \\ y \end{matrix} \right) \phi^y (1 - \phi)^{N - y}.
+$$
+
+Suppose we have 2 samples $y_1$ drawn from $Y_1$ and $y_2$ drawn from $Y_2$. Then, we can compute the log-likelihood given by parameters:
+$$
+\begin{aligned}
+\log [p(\bm{y}|N, \phi)] = \log [p(y_1, y_2|N, \phi)] = & -\log \Gamma\left(y_{1}+1\right)-\log \Gamma\left(y_{2}+1\right) \\
+& -\log \Gamma\left(N-y_{1}+1\right)-\log \Gamma\left(N-y_{2}+1\right)+2 \log \Gamma(N+1) \\
+& +\left(y_{1}+y_{2}\right) \log (\phi)+\left(2 N-y_{1}-y_{2}\right) \log (1-\phi).
+\end{aligned}
+$$
+
+Before the excavation took place, the archaeologist believed that around 1000 individuals were buried, and that they would find around half on the femurs. We then used Bayesian Theory, considering the above information as prior knowledge. We assume that the number of individuals buried, $N$, follows a geometric distribution with parameter $\xi(\xi > 0)$, and the proportion of individuals buried with femurs, $\phi$, follows a beta distribution with parameters $a$ and $b(a, b > 0)$. Based on the given information, we set $\xi = \frac{1}{1001}, a = 2, \text{ and } b = 2$.
+
+Hence we have the prior distribution:
+$$
+\begin{aligned}
+p_{N}(n)=\mathrm{P}(N=n) & =\xi(1-\xi)^{n}, \quad \xi = \frac{1}{1001}, n=0,1,2,3, \ldots, \\
+p_{\phi}(\phi) & =\frac{\phi^{a-1}(1-\phi)^{b-1}}{B(a, b)}, \quad a = 2, b = 2, \phi \in[0,1] .
+\end{aligned}
+$$
+
+Note that we have the observations $\boldsymbol{y} = (256, 237)$ and let sample number $k = 100$:
+
+```{r}
+# sample number
+k <- 100
+
+# sampling
+N.sample <- rgeom(n = k, prob = 1 / (1001))
+Phi.sample <- rbeta(n = k, shape1 = 2, shape2 = 2)
+params <- data.frame(
+  N = N.sample,
+  Phi = Phi.sample
+)
+
+# loglike
+loglike <- arch_loglike(
+  y = c(256, 237),
+  params = params
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(head(data.frame(
+  N = N.sample,
+  Phi = Phi.sample,
+  loglike = loglike
+)))
+```
+
+## Question 2
+
+Note that the posterior probability function for $(N, \phi \mid y)$ is:
+$$
+p_{N, \phi \mid \boldsymbol{Y}}(n, \phi \mid \boldsymbol{y}) =
+\frac{p_{N, \phi, \boldsymbol{Y}}(n, \phi, \boldsymbol{y})}{p_{\boldsymbol{Y}}(\boldsymbol{y})} =
+\frac{p_{N}(n) p_{\phi}(\phi) p(\boldsymbol{y} \mid n, \phi)}{p_{\boldsymbol{Y}}(\boldsymbol{y})}.
+$$
+
+Consider the prior distributions as sampling distributions, then the samples can be used to compute Monte Carlo estimations:
+$$
+\begin{aligned}
+\widehat{p}_{\boldsymbol{Y}}(\boldsymbol{y}) & =\frac{1}{K} \sum_{k=1}^{K} p\left(\boldsymbol{y} \mid n^{[k]}, \phi^{[k]}\right) \\
+\widehat{\mathrm{E}}(N \mid \boldsymbol{y}) & =\frac{1}{K \widehat{p}_{\boldsymbol{Y}}(\boldsymbol{y})} \sum_{k=1}^{K} n^{[k]} p\left(\boldsymbol{y} \mid n^{[k]}, \phi^{[k]}\right) \\
+\widehat{\mathrm{E}}(\phi \mid \boldsymbol{y}) & =\frac{1}{K \widehat{p}_{\boldsymbol{Y}}(\boldsymbol{y})} \sum_{k=1}^{K} \phi^{[k]} p\left(\boldsymbol{y} \mid n^{[k]}, \phi^{[k]}\right)
+\end{aligned}
+$$
+
+```{r}
+MC.estimation <- estimate(
+  y = c(256, 237),
+  xi = 1 / 1001,
+  a = 0.5, b = 0.5,
+  K = 10000
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(MC.estimation)
+```
+
+It's important to note that the value of the density function holds no practical significance, as its estimator primarily serves as an expectation used for estimating the posterior distribution of two parameters.
+
+From our results, we ascertain that approximately 860 individuals are buried at this location, with a probability of finding a femur standing at around 0.42. Utilizing the expectation formula of the binomial distribution, we calculate the expected value of observations $Y$ to be 860 * 0.42 = 366. This figure is slightly lower than our prior expected value $\mathsf{E}Y$ of 500, attributed to our observations $(y_1, y_2)$ hovering around 250. Consequently, the expectation of the posterior distribution $Y \sim \text{Bino}(N\mid \boldsymbol{y}, \phi\mid \boldsymbol{y})$ will reflect this decrease.
+
+# Code appendix
+
+```{r code=readLines("code.R"), eval=FALSE, echo=TRUE}
+# Do not change this code chunk
+```
